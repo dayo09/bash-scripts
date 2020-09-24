@@ -3,15 +3,20 @@
 ##############################################################################
 ################################ Settings ####################################
 
-BINARY_TITLE=v1.8.0-android-periannath-patch
+RUNTIME="one"
+BINARY_TITLE=$1
 BACKENDS="cpu"
 MODEL="model_bcq_after_7.30"
 
-MODEL_LIST=("joint" "pred" "tran")
-QUANT_LIST=("3" "5" "q" "f")
+SUBMODEL_LIST=("joint" "pred" "tran")
+#SUBMODEL_LIST=("joint")
+QUANT_LIST=("3" "4" "q" "f")
+#QUANT_LIST=("q")
 
-LOG_LATENCY=true
-LOG_MEMORY=true
+BENCHMARK_WARMUP=true
+BENCHMARK_LATENCY=true
+BENCHMARK_MEMORY=true
+BENCHMARK_MEMORY_SMAPS=true
 
 RUY_THREADS=1
 
@@ -19,11 +24,111 @@ RUY_THREADS=1
 ##############################################################################
 ########################### Do not edit below ################################
 
+askBenchmarkWarmup() {
+  read -p "Benchmark Warmup? (y/Y | n/N)" choice
+  case "$choice" in
+  y | Y)
+    BENCHMARK_WARMUP=true
+    ;;
+  n | N)
+    BENCHMARK_WARMUP=false
+    ;;
+  *)
+    echo "Invalid input. Exit."
+    Exit 1
+    ;;
+  esac
+}
+
+askBenchmarkLatency() {
+  read -p "Benchmark Latency? (y/Y | n/N)" choice
+  case "$choice" in
+  y | Y)
+    BENCHMARK_LATENCY=true
+    ;;
+  n | N)
+    BENCHMARK_LATENCY=false
+    ;;
+  *)
+    echo "Invalid input. Exit."
+    Exit 1
+    ;;
+  esac
+}
+
+askBenchmarkMemory() {
+  read -p "Benchmark Memory? (y/Y | n/N)" choice
+  case "$choice" in
+  y | Y)
+    BENCHMARK_MEMORY=true
+    ;;
+  n | N)
+    BENCHMARK_MEMORY=false
+    ;;
+  *)
+    echo "Invalid input. Exit."
+    Exit 1
+    ;;
+  esac
+}
+
+askBenchmarkMemorySmaps() {
+  read -p "Benchmark Memory Smaps? (y/Y | n/N)" choice
+  case "$choice" in
+  y | Y)
+    BENCHMARK_MEMORY_SMAPS=true
+    ;;
+  n | N)
+    BENCHMARK_MEMORY_SMAPS=false
+    ;;
+  *)
+    echo "Invalid input. Exit."
+    Exit 1
+    ;;
+  esac
+}
+
+# Target : Exynos or Snapdragon
+askTarget() {
+  read -p "Target? Exynos(e/E) or Snapdragon(s/S)" choice
+  case "$choice" in
+  e | E)
+    TARGET="Exynos"
+    ;;
+  s | S)
+    TARGET="Snapdragon"
+    ;;
+  *)
+    echo "Invalid input. Exit."
+    Exit 1
+    ;;
+  esac
+
+  read -p "Target Binary? User(u/U) or Engineering(e/E)" choice
+  case "$choice" in
+  u | U)
+    TARGET_BINARY="User Binary"
+    ;;
+  e | E)
+    TARGET_BINARY="Engineering Binary"
+    ;;
+  *)
+    echo "Invalid input. Exit."
+    Exit 1
+    ;;
+  esac
+}
+
+askTarget
+askBenchmarkLatency
+askBenchmarkMemory
+askBenchmarkMemorySmaps
+
 ## Generate Test List
-TEST_LIST=()
-for m in ${MODEL_LIST[@]}; do
+MODEL_LIST=()
+for m in ${SUBMODEL_LIST[@]}; do
   for q in ${QUANT_LIST[@]}; do
-    TEST_LIST+=(${m}${q})
+    MODEL_LIST+=(${m}${q})
   done
 done
 
@@ -39,78 +144,117 @@ mkdir -p ${LOG_PATH}
 
 touch "${LOG_README}"
 echo "- Date : ${DATE}" >>"${LOG_README}"
-echo "- Runtime : ONE" >>"${LOG_README}"
+echo "- Target Device : ${TARGET}" >>"${LOG_README}"
+echo "- Target Device Binary : ${TARGET_BINARY}" >>"${LOG_README}"
+echo "- Runtime : ${RUNTIME}" >>"${LOG_README}"
 echo "- Binary : resource/${BINARY_TITLE}" >>"${LOG_README}"
 echo "- Backend : ${BACKENDS}" >>"${LOG_README}"
 echo "- Model : ${MODEL}" >>"${LOG_README}"
-echo "- Test Model List : ${TEST_LIST[@]}" >>"${LOG_README}"
-echo "- Log Enabled : Latency(${LOG_LATENCY}) Memory(${LOG_MEMORY})" >>"${LOG_README}"
+echo "  - Sub Models : ${SUBMODEL_LIST[@]}" >>"${LOG_README}"
+echo "  - Quantizations : ${QUANT_LIST[@]}" >>"${LOG_README}"
+echo "- Test Model List : ${MODEL_LIST[@]}" >>"${LOG_README}"
+echo "- Benchmark Enabled : Warmup(${BENCHMARK_WARMUP}) Latency(${BENCHMARK_LATENCY}) Memory(${BENCHMARK_MEMORY}) Memory/SMAPS(${BENCHMARK_MEMORY_SMAPS})" >>"${LOG_README}"
 echo "---------------------------------------------------------" >>"${LOG_README}"
 echo "- RUY_THREADS : ${RUY_THREADS}" >>"${LOG_README}"
 
 ## Set ADB Path to run & log
 ADB_ROOT=/data/local/tmp
-ADB_ONE_PATH=$ADB_ROOT/${BINARY_TITLE}
-ADB_ONE_LIB_PATH=$ADB_ONE_PATH/lib
-ADB_ONE_NNPKG_RUN_PATH=$ADB_ONE_PATH/bin/nnpackage_run
+ADB_RUNTIME_PATH=$ADB_ROOT/${BINARY_TITLE}
+ADB_RUNTIME_LIB_PATH=$ADB_RUNTIME_PATH/lib
+ADB_RUNNER=$ADB_RUNTIME_PATH/bin/nnpackage_run
 
 MODEL_ROOT=${ADB_ROOT}/${MODEL}
 
-if [ $LOG_LATENCY = true ]; then
+if [ $BENCHMARK_LATENCY = true ]; then
   LOG_LATENCY_PATH=${LOG_PATH}/latency
   mkdir -p $LOG_LATENCY_PATH
 fi
 
-if [ $LOG_MEMORY = true ]; then
+if [ $BENCHMARK_MEMORY = true ]; then
   LOG_MEMORY_PATH=${LOG_PATH}/memory
   mkdir -p $LOG_MEMORY_PATH
 fi
 
+if [ $BENCHMARK_MEMORY_SMAPS = true ]; then
+  LOG_MEMORY_SMAPS_PATH=${LOG_PATH}/memory/smaps
+  mkdir -p $LOG_MEMORY_SMAPS_PATH
+fi
 
-RUN(){
-LATENCY_RUN_COMMAND="adb shell LD_LIBRARY_PATH=${ADB_ONE_LIB_PATH} BACKENDS=${BACKENDS} RUY_THREADS=${RUY_THREADS} ${ADB_ONE_NNPKG_RUN_PATH} -w20 -r500"
-MEMORY_RUN_COMMAND="adb shell LD_LIBRARY_PATH=${ADB_ONE_LIB_PATH} BACKENDS=${BACKENDS} RUY_THREADS=${RUY_THREADS} ${ADB_ONE_NNPKG_RUN_PATH} -m1 -w1 -r5 "
+LATENCY_RUN_ARGS="-w20 -r200"
+MEMORY_RUN_ARGS="-m1 -r200"
+SMAPS_RUN_ARGS="??"
 
-for model_file in ${TEST_LIST[@]}; do
-  "${LATENCY_RUN_COMMAND} ${MODEL_ROOT}/${model_file}" >${LOG_LATENCY_PATH}/${model_file}.log
-  sleep 5
-  "${MEMORY_RUN_COMMAND} ${MODEL_ROOT}/${model_file}" >${LOG_MEMORY_PATH}/${model_file}.log
-  sleep 15
-done
-}
+LATENCY_RUN_COMMAND="LD_LIBRARY_PATH=${ADB_RUNTIME_LIB_PATH} RUY_THREADS=${RUY_THREADS} ${ADB_RUNNER} ${LATENCY_RUN_ARGS} "
+MEMORY_RUN_COMMAND="LD_LIBRARY_PATH=${ADB_RUNTIME_LIB_PATH} RUY_THREADS=${RUY_THREADS} ${ADB_RUNNER} ${MEMORY_RUN_ARGS} "
+WARMUP_RUN_COMMAND="LD_LIBRARY_PATH=${ADB_RUNTIME_LIB_PATH} RUY_THREADS=${RUY_THREADS} ${ADB_RUNNER} "
 
-exit 1
-
-model_load_warmup() {
-  LOG_MEMORY_PATH=~/nfs/bash_script/log/${LOG_TITLE}/${BACKENDS}/memory
-  LOG_LATENCY_PATH=~/nfs/bash_script/log/${LOG_TITLE}/${BACKENDS}/latency
-  mkdir -p $LOG_MEMORY_PATH
-  mkdir -p $LOG_LATENCY_PATH
-
-  for model in "joint" "pred"; do
-    for quant in "3"; do
-      model_file=bcq_${model}${quant}
-      #adb shell LD_LIBRARY_PATH=${ADB_ONE_LIB_PATH} BACKENDS=${BACKENDS} RUY_THREADS=${RUY_THREADS} ${ADB_ONE_NNPKG_RUN_PATH} -w20 -r500 ${MODEL_ROOT}/${model_file} >${LOG_LATENCY_PATH}/${model_file}.log
-      adb shell LD_LIBRARY_PATH=${ADB_ONE_LIB_PATH} BACKENDS=${BACKENDS} RUY_THREADS=${RUY_THREADS} ${ADB_ONE_NNPKG_RUN_PATH} -w20 -r200 ${MODEL_ROOT}/${model_file} # >${LOG_MEMORY_PATH}/${model_file}.log
-      #sleep 15
-    done
+WarmUp() {
+  for model in ${MODEL_LIST[@]}; do
+    adb shell "${WARMUP_RUN_COMMAND} ${MODEL_ROOT}/${model}"
   done
 }
 
-run() {
-  LOG_MEMORY_PATH=~/nfs/bash_script/log/${LOG_TITLE}/${MODEL}/${BACKENDS}/memory
-  LOG_LATENCY_PATH=~/nfs/bash_script/log/${LOG_TITLE}/${MODEL}/${BACKENDS}/latency
-  mkdir -p $LOG_MEMORY_PATH
-  mkdir -p $LOG_LATENCY_PATH
+RunLatency() {
+  echo "Last-to-First Compare (First) : ${LATENCY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
+  adb shell "${LATENCY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
 
-  for model in "enc" "enc1" "enc2" "dec1" "dec2" "dec3"; do
-    model_file=mocha_${model}
-    adb shell LD_LIBRARY_PATH=${ADB_ONE_LIB_PATH} BACKENDS=${BACKENDS} RUY_THREADS=${RUY_THREADS} ${ADB_ONE_NNPKG_RUN_PATH} -w20 -r200 ${MODEL_ROOT}/${model_file} >${LOG_LATENCY_PATH}/${model_file}.log
-    sleep 5
-    adb shell LD_LIBRARY_PATH=${ADB_ONE_LIB_PATH} BACKENDS=${BACKENDS} RUY_THREADS=${RUY_THREADS} ${ADB_ONE_NNPKG_RUN_PATH} -m1 -w1 -r5 ${MODEL_ROOT}/${model_file} >${LOG_MEMORY_PATH}/${model_file}.log
+  for model in ${MODEL_LIST[@]}; do
+    echo "Warmup : ${WARMUP_RUN_COMMAND} ${MODEL_ROOT}/${model}" >> ${LOG_README}
+    adb shell "${WARMUP_RUN_COMMAND} ${MODEL_ROOT}/${model}"
+
+    echo "Run(Latency) : ${LATENCY_RUN_COMMAND}${MODEL_ROOT}/${model} >${LOG_LATENCY_PATH}/${model}.log " >> ${LOG_README}
+    adb shell "${LATENCY_RUN_COMMAND}${MODEL_ROOT}/${model}" >${LOG_LATENCY_PATH}/${model}.log
+
+    echo "sleep 15" >> ${LOG_README}
     sleep 15
   done
+    
+  echo "Last-to-First Compare (Last) : ${LATENCY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
+  adb shell "${LATENCY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
 }
 
-model_load_warmup
-# run
+RunMemory() {
+  echo "Last-to-First Compare (First) : ${MEMORY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
+  adb shell "${MEMORY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
+
+  for model in ${MODEL_LIST[@]}; do
+    echo "Warmup : ${WARMUP_RUN_COMMAND} ${MODEL_ROOT}/${model}" >> ${LOG_README}
+    adb shell "${WARMUP_RUN_COMMAND} ${MODEL_ROOT}/${model}"
+
+    echo "Run(Memory) : ${MEMORY_RUN_COMMAND}${MODEL_ROOT}/${model}" >> ${LOG_README}
+    adb shell "${MEMORY_RUN_COMMAND}${MODEL_ROOT}/${model}" >${LOG_MEMORY_PATH}/${model}.log
+
+    echo "sleep 5" >> ${LOG_README}
+    sleep 5
+  done
+
+  echo "Last-to-First Compare (Last) : ${MEMORY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
+  adb shell "${MEMORY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}" >> ${LOG_README}
+}
+
+set -x
+RunMemorySmaps() {
+  for model in ${MODEL_LIST[@]}; do
+    RUN_OPTIONS="-r200"
+    ONE_RUN_BIN="/data/local/tmp/${BINARY_TITLE}/bin/nnpackage_run"
+    ONE_RUN_LIB="/data/local/tmp/${BINARY_TITLE}/lib"
+
+    EXPORT_OPTIONS="export BACKENDS=\"cpu;bcq\" && RUY_THREADS=1"
+    NNPACKAGE_RUN="export LD_LIBRARY_PATH=${ONE_RUN_LIB} && ${EXPORT_OPTIONS} && sh /data/local/tmp/script/rss_measure.sh \" ${ONE_RUN_BIN} ${RUN_OPTIONS} --nnpackage /data/local/tmp/model_bcq_after_7.30/${model} \" "
+    NNPACKAGE_WARMUP="export LD_LIBRARY_PATH=${ONE_RUN_LIB} && ${EXPORT_OPTIONS} && export RUY_THREADS=1 && sh /data/local/tmp/script/rss_measure.sh \" ${ONE_RUN_BIN} -r20 --nnpackage /data/local/tmp/model_bcq_after_7.30/${model} \" "
+
+    adb shell "${NNPACKAGE_RUN}" > ${LOG_MEMORY_SMAPS_PATH}/${model}.log
+  done
+}
+
+#RunSMAPS() {
+#  adb shell "sh ${ADB_ROOT}/script/rss_measure.sh \"${MEMORY_RUN_COMMAND}${MODEL_ROOT}/${MODEL_LIST[0]}\""
+#}
+
+[[ $BENCHMARK_WARMUP = true ]] && WarmUp
+[[ $BENCHMARK_LATENCY = true ]] && RunLatency
+[[ $BENCHMARK_MEMORY = true ]] && RunMemory
+[[ $BENCHMARK_MEMORY_SMAPS = true ]] && RunMemorySmaps
+#RunMemory
+#RunMemorySmaps
+set +x

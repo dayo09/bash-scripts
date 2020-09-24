@@ -30,6 +30,7 @@ askContinue() {
 }
 
 adb shell test ${DEST_PATH}
+
 askContinue
 
 adb shell mkdir ${DEST_PATH}

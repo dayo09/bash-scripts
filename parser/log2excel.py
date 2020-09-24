@@ -54,7 +54,7 @@ def read_memory_one(filepath):
 
 
 """
-def read_memory_with_rss(filepath):
+def read_memory_with_smaps(filepath):
     data = read_memory_one(filepath)
 
     with open(filepath, 'r') as file_raw:
@@ -65,8 +65,8 @@ def read_memory_with_rss(filepath):
 """
 
 
-def read_memory_with_rss(filepath):
-    data = read_memory_one(filepath)
+def read_memory_with_smaps(filepath):
+    data = []
 
     with open(filepath, 'r') as file_raw:
         file_oneline = file_raw.read()
@@ -230,7 +230,7 @@ def parse_memory(runtime):
     return
 
 
-def parse_memory_with_rss():
+def parse_memory_with_smaps():
     result = []
 
     _label = ["MODEL NAME"]
@@ -241,17 +241,21 @@ def parse_memory_with_rss():
         for p in range(len(phase)):
             _label.append(phase[p] + "/" + memory_type[m])
 
-    _label.append("RSS from smaps")
-    log_rss_path = log_path + "/rss/nnpackage_run"
+    _label.append("RSS-SMAPS")
+    log_memory_path = log_path + "/memory"
+    log_smaps_path = log_path + "/memory/smaps"
 
     result.append(_label)
     for i in range(0, len(model_list)):
-        log_file = get_modelfile_name(
-            log_rss_path, model_type, model_list, i)
+        log_memory_file = get_modelfile_name(
+            log_memory_path, model_type, model_list, i)
+        log_smaps_file = get_modelfile_name(
+            log_smaps_path, model_type, model_list, i)
 
         value = []
         value.append(model_list[i])
-        value.extend(read_memory_with_rss(log_file))
+        value.extend(read_memory(log_memory_file, 'one'))
+        value.extend(read_memory_with_smaps(log_smaps_file))
 
         result.append(value)
 
@@ -288,12 +292,10 @@ log_name_major = sys.argv[1]
 log_name_minor = max(os.listdir(path=log_root+log_name_major))
 log_path = log_root + log_name_major + "/" + log_name_minor
 
-
-
 runtime = "one"  # "one" "tflite" "tflite_vanilla"
 model_type = "bcq"  # "bcq" "mocha"
 model_list = get_model_list(runtime, model_type)
 
-parse_latency(runtime)
+#parse_latency(runtime)
 #parse_memory(runtime)
-parse_memory_with_rss()
+parse_memory_with_smaps()
